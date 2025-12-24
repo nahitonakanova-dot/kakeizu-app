@@ -12,9 +12,8 @@ from reportlab.lib.units import mm
 # ==========================================
 # 1. 設定・データ定義
 # ==========================================
-# フォント設定（同階層にある ipam.ttf を優先、なければシステムフォントを探す）
 FONT_NAME = "IPAMincho"
-FONT_FILE = "ipam.ttf"  # アプリと同じフォルダに置くことを推奨
+FONT_FILE = "ipam.ttf"
 
 # 関係性マップ
 RELATION_MAP = {
@@ -64,20 +63,18 @@ FONT_SIZE_QUAD_NAME = 36
 FONT_SIZE_BG = 10 
 
 # ==========================================
-# 2. PDF生成クラス (Webアプリ用に改修)
+# 2. PDF生成クラス
 # ==========================================
 class GenealogyPDF:
     def __init__(self, client_data, file_object):
-        # file_object: ファイル名ではなく、メモリ上のバッファ(io.BytesIO)を受け取る
         self.c = canvas.Canvas(file_object, pagesize=landscape(A4))
         self.width, self.height = landscape(A4)
         self.data = client_data
         
-        # フォント登録チェック
+        # フォント登録（エラーハンドリング強化）
         try:
             pdfmetrics.registerFont(TTFont(FONT_NAME, FONT_FILE))
         except:
-            # 予備: Colab等のパス
             fallback = "/usr/share/fonts/opentype/ipafont-mincho/ipam.ttf"
             if os.path.exists(fallback):
                 pdfmetrics.registerFont(TTFont(FONT_NAME, fallback))
@@ -138,7 +135,6 @@ class GenealogyPDF:
         box_h = 24 * mm 
         box_h_half = box_h / 2
         
-        # 凡例
         self.c.saveState()
         self.c.setFont(FONT_NAME, 10)
         self.c.setFillColor(colors.black)
@@ -215,10 +211,14 @@ class GenealogyPDF:
         self.c.showPage()
 
     def _draw_node(self, key, x, y, box_w, box_h):
-        name = self.data['names'].get(key, RELATION_MAP[key]['label'])
+        # 名前取得ロジックの修正：シンプルに key から取得
+        name = self.data['names'].get(key)
+        if not name:
+            # 名前がなければラベル（本人、父など）を使用
+            name = RELATION_MAP[key]['label']
+            
         label = RELATION_MAP[key]['label']
         gender = RELATION_MAP[key].get('gender', 'm')
-        if key == 'self': name = self.data['names'].get('本人', name)
         
         is_guardian, is_priority = self.check_attributes(label)
 
@@ -231,11 +231,13 @@ class GenealogyPDF:
         else:
             self.c.rect(x - box_w/2, y - box_h/2, box_w, box_h, fill=1, stroke=1)
         self.c.restoreState()
-        self.draw_vertical_text(name if name else label, x, y, FONT_SIZE_TREE, is_priority, is_guardian)
+        self.draw_vertical_text(name, x, y, FONT_SIZE_TREE, is_priority, is_guardian)
 
     def create_quad_pages(self):
         targets = []
-        targets.append(('self', self.data['names'].get('本人', '本人')))
+        # 本人をリストの最初に追加
+        targets.append(('self', self.data['names'].get('self', '本人')))
+        
         sorted_keys = sorted(RELATION_MAP.keys(), key=lambda x: RELATION_MAP[x]['gen'])
         for key in sorted_keys:
             if key == 'self': continue
@@ -265,7 +267,6 @@ class GenealogyPDF:
             if idx >= 4: break
             rx, ry, rw, rh = rects[idx]
             
-            # 背景転写
             self.c.saveState()
             path = self.c.beginPath()
             path.rect(rx, ry, rw, rh)
@@ -286,7 +287,6 @@ class GenealogyPDF:
             self.c.drawText(bg_t)
             self.c.restoreState()
             
-            # 中央表示（バグ修正済み：saveState使用）
             self.c.saveState() 
             label = RELATION_MAP[key]['label']
             is_guardian, is_priority = self.check_attributes(label)
@@ -353,19 +353,21 @@ class GenealogyPDF:
         self.c.save()
 
 # ==========================================
-# 3. テキスト解析処理
+# 3. テキスト解析処理（強化版）
 # ==========================================
 def parse_text_data(text):
     data = {'names': {}, 'guardians': [], 'priorities': [], 'contracts': []}
     current_section = 'names'
     label_map = {v['label']: k for k, v in RELATION_MAP.items()}
+    # ラベルマップに「本人」を明示的に追加
     label_map['本人'] = 'self' 
     
-    # 文字列を行ごとに分割して処理
     lines = text.split('\n')
     for line in lines:
-        line = line.strip()
+        # 全角スペースや全角イコールなどの揺らぎを吸収
+        line = line.replace('　', ' ').strip()
         if not line: continue
+        
         if line.startswith('◎守護'):
             current_section = 'guardians'
             continue
@@ -377,14 +379,25 @@ def parse_text_data(text):
             continue
         
         if current_section == 'names':
-            if '=' in line:
-                key_str, val = line.split('=', 1)
+            # 全角イコール対応
+            clean_line = line.replace('＝', '=')
+            if '=' in clean_line:
+                key_str, val = clean_line.split('=', 1)
                 key_str = key_str.strip()
                 val = val.strip()
-                sys_key = label_map.get(key_str)
-                if key_str in RELATION_MAP: data['names'][key_str] = val
-                elif sys_key: data['names'][sys_key] = val
-                else: data['names'][key_str] = val
+                
+                # 「本人」と書かれていたら強制的に key='self' として保存
+                if key_str == '本人':
+                    data['names']['self'] = val
+                # その他のキー処理
+                elif key_str in label_map:
+                    sys_key = label_map[key_str]
+                    data['names'][sys_key] = val
+                elif key_str in RELATION_MAP:
+                    data['names'][key_str] = val
+                else:
+                    data['names'][key_str] = val
+
         elif current_section == 'guardians':
             if line.startswith('・'): line = line[1:]
             data['guardians'].append(line)
@@ -450,7 +463,11 @@ def main():
                 try:
                     # 解析
                     client_data = parse_text_data(input_text)
-                    client_name = client_data['names'].get('self', 'Client')
+                    
+                    # クライアント名（ファイル名用）の取得をより堅牢に
+                    # 'self' が無ければ '本人' を探し、それでもなければ 'Client'
+                    client_name = client_data['names'].get('self', 
+                                  client_data['names'].get('本人', 'Client'))
                     
                     # メモリ上にPDF作成
                     buffer = io.BytesIO()
@@ -460,7 +477,6 @@ def main():
                     gen.create_summary_page()
                     gen.save()
                     
-                    # バッファのポインタを先頭に戻す
                     buffer.seek(0)
                     
                     st.success(f"「{client_name}」様のPDF生成に成功しました！")
@@ -475,7 +491,6 @@ def main():
                     )
                 except Exception as e:
                     st.error(f"エラーが発生しました: {e}")
-                    # フォントエラーの可能性が高い場合のヒント
                     if "IPAMincho" in str(e) or "Can't find font" in str(e):
                         st.warning("⚠️ ヒント: フォントファイル(ipam.ttf)が同じフォルダに存在するか確認してください。")
 
