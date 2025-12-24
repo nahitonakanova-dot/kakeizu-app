@@ -2,6 +2,7 @@ import streamlit as st
 import io
 import datetime
 import os
+import math
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
@@ -258,6 +259,7 @@ class GenealogyPDF:
         self.c.line(0, cy, w, cy)
         self.c.restoreState()
         
+        # 4区画 (x, y, width, height)
         rects = [(0, cy, cx, cy), (cx, cy, cx, cy), (0, 0, cx, cy), (cx, 0, cx, cy)]
         
         for idx, (key, name) in enumerate(people):
@@ -267,22 +269,33 @@ class GenealogyPDF:
             # --- 背景転写 ---
             self.c.saveState()
             
-            # 【重要修正：ローカル座標系での厳密なクリッピング】
-            # 1. まず原点を、その区画の左下に移動させる
+            # 1. 確実なクリッピング（グローバル座標で指定）
+            # これにより、この枠外には1ドットたりとも描画されなくなる
+            path = self.c.beginPath()
+            path.rect(rx, ry, rw, rh)
+            self.c.clipPath(path, stroke=0, fill=0)
+            
+            # 2. 原点を区画の左下に移動
             self.c.translate(rx, ry)
             
-            # 2. 移動した原点(0,0)を基準に、区画の大きさ分のクリップ枠を作る
-            #    これ以降、(0,0)〜(rw, rh)の外側には一切描画されなくなる
-            p = self.c.beginPath()
-            p.rect(0, 0, rw, rh)
-            self.c.clipPath(p, stroke=0, fill=0)
-            
-            # 3. 背景文字描画
             self.c.setFont(FONT_NAME, FONT_SIZE_BG)
             self.c.setFillColor(colors.white)
             
-            text_line = (name + "　") * 50 
+            # 【決定的な修正】 
+            # 文字列を「50回繰り返し」のような過剰な長さにするのをやめ、
+            # 「枠の幅 (rw) に収まる分だけ」繰り返すように計算する。
+            # これで物理的に隣の枠に届く文字が存在しなくなる。
+            unit_text = name + "　"
+            unit_width = self.c.stringWidth(unit_text, FONT_NAME, FONT_SIZE_BG)
+            if unit_width > 0:
+                # 枠を埋めるのに必要な回数を計算（念のため+2回分余裕を持たせる）
+                repeats = int(rw / unit_width) + 2
+            else:
+                repeats = 1
             
+            text_line = unit_text * repeats
+            
+            # 描画ループ（下限0でストップ）
             ty = rh
             while ty > 0:
                 self.c.drawString(0, ty, text_line)
