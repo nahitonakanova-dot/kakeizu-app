@@ -267,15 +267,15 @@ class GenealogyPDF:
             # --- 背景転写 ---
             self.c.saveState()
             
-            # 【重要修正】 
-            # 1. 座標を動かす「前」に、グローバル座標でクリッピング領域を設定する。
-            #    これにより、translateの影響を受けずに確実にその区画だけを切り抜く。
-            p = self.c.beginPath()
-            p.rect(rx, ry, rw, rh)
-            self.c.clipPath(p, stroke=0, fill=0)
-            
-            # 2. その後、区画の左下を原点(0,0)に設定する
+            # 【重要修正：ローカル座標系での厳密なクリッピング】
+            # 1. まず原点を、その区画の左下に移動させる
             self.c.translate(rx, ry)
+            
+            # 2. 移動した原点(0,0)を基準に、区画の大きさ分のクリップ枠を作る
+            #    これ以降、(0,0)〜(rw, rh)の外側には一切描画されなくなる
+            p = self.c.beginPath()
+            p.rect(0, 0, rw, rh)
+            self.c.clipPath(p, stroke=0, fill=0)
             
             # 3. 背景文字描画
             self.c.setFont(FONT_NAME, FONT_SIZE_BG)
@@ -283,12 +283,8 @@ class GenealogyPDF:
             
             text_line = (name + "　") * 50 
             
-            # 【重要修正】
-            # ループ下限を「0」で止める。
-            # 以前は -15 まで回していたため、クリッピングが効いていないと確実にはみ出ていた。
-            # ty > 0 とすることで、Y=0（区画の境界線）より下にはそもそも描画命令を出さない。
             ty = rh
-            while ty > 0: 
+            while ty > 0:
                 self.c.drawString(0, ty, text_line)
                 ty -= 12
             
