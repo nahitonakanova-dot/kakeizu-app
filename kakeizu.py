@@ -258,37 +258,41 @@ class GenealogyPDF:
         self.c.line(0, cy, w, cy)
         self.c.restoreState()
         
+        # 4区画の定義 (x, y, width, height)
+        # 0:左上, 1:右上, 2:左下, 3:右下
         rects = [(0, cy, cx, cy), (cx, cy, cx, cy), (0, 0, cx, cy), (cx, 0, cx, cy)]
         
         for idx, (key, name) in enumerate(people):
             if idx >= 4: break
             rx, ry, rw, rh = rects[idx]
             
-            # --- 背景転写（修正：クリッピングを厳密に適用） ---
+            # --- 背景転写（座標変換による完全な封じ込め） ---
             self.c.saveState()
             
-            # 1. クリップ領域を設定（この枠外には描画されなくなる）
-            p = self.c.beginPath()
-            p.rect(rx, ry, rw, rh)
-            self.c.clipPath(p, stroke=0, fill=0)
+            # 1. 原点を区画の左下に移動 (ここを (0,0) とする)
+            self.c.translate(rx, ry)
             
-            # 2. 背景文字の設定
+            # 2. クリッピング (0,0 から width, height まで)
+            path = self.c.beginPath()
+            path.rect(0, 0, rw, rh)
+            self.c.clipPath(path, stroke=0, fill=0)
+            
+            # 3. 背景文字描画
             self.c.setFont(FONT_NAME, FONT_SIZE_BG)
-            self.c.setFillColor(colors.white) # 文字色は白（背景への透かし効果用）
+            self.c.setFillColor(colors.white)
             
-            # 3. 描画ループ（drawStringで直接描画することでクリッピングを確実に）
-            # 幅を確実に埋めるために繰り返し回数を多めに設定
             text_line = (name + "　") * 50 
             
-            ty = ry + rh
-            # 枠の下端までループ
-            while ty > ry - 10:
-                self.c.drawString(rx, ty, text_line)
+            # 区画の上端(rh)から下端(0)へ向かって描画
+            # 原点移動しているため、y座標は rh から 0 になる
+            ty = rh
+            while ty > -15: # 少し下まではみ出して描く（クリップで切れるのでOK）
+                self.c.drawString(0, ty, text_line)
                 ty -= 12
             
             self.c.restoreState()
             
-            # --- 中央表示 ---
+            # --- 中央表示 (通常座標に戻る) ---
             self.c.saveState() 
             label = RELATION_MAP[key]['label']
             is_guardian, is_priority = self.check_attributes(label)
