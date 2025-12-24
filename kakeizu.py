@@ -71,7 +71,6 @@ class GenealogyPDF:
         self.width, self.height = landscape(A4)
         self.data = client_data
         
-        # フォント登録（エラーハンドリング強化）
         try:
             pdfmetrics.registerFont(TTFont(FONT_NAME, FONT_FILE))
         except:
@@ -211,10 +210,8 @@ class GenealogyPDF:
         self.c.showPage()
 
     def _draw_node(self, key, x, y, box_w, box_h):
-        # 名前取得ロジックの修正：シンプルに key から取得
         name = self.data['names'].get(key)
         if not name:
-            # 名前がなければラベル（本人、父など）を使用
             name = RELATION_MAP[key]['label']
             
         label = RELATION_MAP[key]['label']
@@ -235,7 +232,6 @@ class GenealogyPDF:
 
     def create_quad_pages(self):
         targets = []
-        # 本人をリストの最初に追加
         targets.append(('self', self.data['names'].get('self', '本人')))
         
         sorted_keys = sorted(RELATION_MAP.keys(), key=lambda x: RELATION_MAP[x]['gen'])
@@ -353,19 +349,20 @@ class GenealogyPDF:
         self.c.save()
 
 # ==========================================
-# 3. テキスト解析処理（強化版）
+# 3. テキスト解析処理（Notion対応版）
 # ==========================================
 def parse_text_data(text):
     data = {'names': {}, 'guardians': [], 'priorities': [], 'contracts': []}
     current_section = 'names'
     label_map = {v['label']: k for k, v in RELATION_MAP.items()}
-    # ラベルマップに「本人」を明示的に追加
     label_map['本人'] = 'self' 
     
     lines = text.split('\n')
     for line in lines:
-        # 全角スペースや全角イコールなどの揺らぎを吸収
-        line = line.replace('　', ' ').strip()
+        # 1. クリーニング処理：全角スペース、アスタリスク(*)を除去
+        # これにより **名前** のようなNotion/Markdown形式もきれいになります
+        line = line.replace('　', ' ').replace('*', '').strip()
+        
         if not line: continue
         
         if line.startswith('◎守護'):
@@ -379,17 +376,14 @@ def parse_text_data(text):
             continue
         
         if current_section == 'names':
-            # 全角イコール対応
-            clean_line = line.replace('＝', '=')
-            if '=' in clean_line:
-                key_str, val = clean_line.split('=', 1)
+            line = line.replace('＝', '=')
+            if '=' in line:
+                key_str, val = line.split('=', 1)
                 key_str = key_str.strip()
                 val = val.strip()
                 
-                # 「本人」と書かれていたら強制的に key='self' として保存
                 if key_str == '本人':
                     data['names']['self'] = val
-                # その他のキー処理
                 elif key_str in label_map:
                     sys_key = label_map[key_str]
                     data['names'][sys_key] = val
@@ -400,13 +394,13 @@ def parse_text_data(text):
 
         elif current_section == 'guardians':
             if line.startswith('・'): line = line[1:]
-            data['guardians'].append(line)
+            data['guardians'].append(line.strip())
         elif current_section == 'priorities':
             if line.startswith('・'): line = line[1:]
-            data['priorities'].append(line)
+            data['priorities'].append(line.strip())
         elif current_section == 'contracts':
             if line.startswith('・'): line = line[1:]
-            data['contracts'].append(line)
+            data['contracts'].append(line.strip())
     return data
 
 # ==========================================
@@ -464,8 +458,6 @@ def main():
                     # 解析
                     client_data = parse_text_data(input_text)
                     
-                    # クライアント名（ファイル名用）の取得をより堅牢に
-                    # 'self' が無ければ '本人' を探し、それでもなければ 'Client'
                     client_name = client_data['names'].get('self', 
                                   client_data['names'].get('本人', 'Client'))
                     
@@ -481,7 +473,6 @@ def main():
                     
                     st.success(f"「{client_name}」様のPDF生成に成功しました！")
                     
-                    # ダウンロードボタン
                     file_name = f"{client_name}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf"
                     st.download_button(
                         label="PDFをダウンロード",
