@@ -249,6 +249,7 @@ class GenealogyPDF:
         w, h = self.width, self.height
         cx, cy = w/2, h/2
         
+        # 十字線
         self.c.saveState()
         self.c.setLineWidth(1.5) 
         self.c.setStrokeColor(colors.black)
@@ -263,26 +264,31 @@ class GenealogyPDF:
             if idx >= 4: break
             rx, ry, rw, rh = rects[idx]
             
+            # --- 背景転写（修正：クリッピングを厳密に適用） ---
             self.c.saveState()
-            path = self.c.beginPath()
-            path.rect(rx, ry, rw, rh)
-            self.c.clipPath(path, stroke=0)
             
-            bg_t = self.c.beginText()
-            bg_t.setFont(FONT_NAME, FONT_SIZE_BG)
-            bg_t.setFillColor(colors.white) 
-            bg_t.setStrokeColor(colors.white)
-            bg_t.setTextRenderMode(0) 
-            tx = rx
+            # 1. クリップ領域を設定（この枠外には描画されなくなる）
+            p = self.c.beginPath()
+            p.rect(rx, ry, rw, rh)
+            self.c.clipPath(p, stroke=0, fill=0)
+            
+            # 2. 背景文字の設定
+            self.c.setFont(FONT_NAME, FONT_SIZE_BG)
+            self.c.setFillColor(colors.white) # 文字色は白（背景への透かし効果用）
+            
+            # 3. 描画ループ（drawStringで直接描画することでクリッピングを確実に）
+            # 幅を確実に埋めるために繰り返し回数を多めに設定
+            text_line = (name + "　") * 50 
+            
             ty = ry + rh
-            while ty > ry:
-                bg_t.setTextOrigin(tx, ty)
-                text_line = (name + "　") * 10
-                bg_t.textOut(text_line)
+            # 枠の下端までループ
+            while ty > ry - 10:
+                self.c.drawString(rx, ty, text_line)
                 ty -= 12
-            self.c.drawText(bg_t)
+            
             self.c.restoreState()
             
+            # --- 中央表示 ---
             self.c.saveState() 
             label = RELATION_MAP[key]['label']
             is_guardian, is_priority = self.check_attributes(label)
@@ -359,8 +365,6 @@ def parse_text_data(text):
     
     lines = text.split('\n')
     for line in lines:
-        # 1. クリーニング処理：全角スペース、アスタリスク(*)を除去
-        # これにより **名前** のようなNotion/Markdown形式もきれいになります
         line = line.replace('　', ' ').replace('*', '').strip()
         
         if not line: continue
