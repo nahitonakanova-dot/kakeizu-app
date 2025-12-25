@@ -270,7 +270,6 @@ class GenealogyPDF:
             self.c.saveState()
             
             # 1. 確実なクリッピング（グローバル座標で指定）
-            # これにより、この枠外には1ドットたりとも描画されなくなる
             path = self.c.beginPath()
             path.rect(rx, ry, rw, rh)
             self.c.clipPath(path, stroke=0, fill=0)
@@ -279,16 +278,13 @@ class GenealogyPDF:
             self.c.translate(rx, ry)
             
             self.c.setFont(FONT_NAME, FONT_SIZE_BG)
-            self.c.setFillColor(colors.white)
+            # ★背景文字は黒
+            self.c.setFillColor(colors.black) 
             
-            # 【決定的な修正】 
-            # 文字列を「50回繰り返し」のような過剰な長さにするのをやめ、
-            # 「枠の幅 (rw) に収まる分だけ」繰り返すように計算する。
-            # これで物理的に隣の枠に届く文字が存在しなくなる。
+            # 枠の幅 (rw) に収まる分だけ繰り返す計算
             unit_text = name + "　"
             unit_width = self.c.stringWidth(unit_text, FONT_NAME, FONT_SIZE_BG)
             if unit_width > 0:
-                # 枠を埋めるのに必要な回数を計算（念のため+2回分余裕を持たせる）
                 repeats = int(rw / unit_width) + 2
             else:
                 repeats = 1
@@ -492,7 +488,9 @@ def main():
                     
                     st.success(f"「{client_name}」様のPDF生成に成功しました！")
                     
-                    file_name = f"{client_name}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf"
+                    # ★変更点：ファイル名に「さん」を追加
+                    file_name = f"{client_name}さん_{datetime.datetime.now().strftime('%Y%m%d')}.pdf"
+                    
                     st.download_button(
                         label="PDFをダウンロード",
                         data=buffer,
