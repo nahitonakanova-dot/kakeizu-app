@@ -9,6 +9,8 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.units import mm
+# 長い文章を折り返すためのユーティリティを追加
+from reportlab.lib.utils import simpleSplit
 
 # ==========================================
 # 1. 設定・データ定義
@@ -269,7 +271,7 @@ class GenealogyPDF:
             # --- 背景転写 ---
             self.c.saveState()
             
-            # 1. 確実なクリッピング（グローバル座標で指定）
+            # 1. 確実なクリッピング
             path = self.c.beginPath()
             path.rect(rx, ry, rw, rh)
             self.c.clipPath(path, stroke=0, fill=0)
@@ -278,7 +280,7 @@ class GenealogyPDF:
             self.c.translate(rx, ry)
             
             self.c.setFont(FONT_NAME, FONT_SIZE_BG)
-            # ★背景文字を白（透かし）に戻す
+            # ★背景文字を白（透かし）
             self.c.setFillColor(colors.white) 
             
             # 枠の幅 (rw) に収まる分だけ繰り返す計算
@@ -332,34 +334,68 @@ class GenealogyPDF:
         self.c.showPage()
 
     def create_summary_page(self):
+        """記録・解析ページの生成（3列レイアウト）"""
         self.c.setFont(FONT_NAME, 14)
-        x_base = 30 * mm
-        y = self.height - 40 * mm
-        self.c.drawString(x_base, y, "■ 記録・解析")
-        y -= 15 * mm
-        def draw_line(text, y_pos, size=10):
-            t_obj = self.c.beginText()
-            t_obj.setFont(FONT_NAME, size)
-            t_obj.setTextOrigin(x_base, y_pos)
-            t_obj.textOut(text)
-            self.c.drawText(t_obj)
-        draw_line("◎ 守護", y, 12)
-        y -= 8 * mm
-        for item in self.data['guardians']:
-            draw_line(f"・{item}", y)
-            y -= 6 * mm
-        y -= 10 * mm
-        draw_line("◎ 癒す優先順位", y, 12)
-        y -= 8 * mm
-        for item in self.data['priorities']:
-            draw_line(f"・{item}", y)
-            y -= 6 * mm
-        y -= 10 * mm
-        draw_line("◎ 契約・コード", y, 12)
-        y -= 8 * mm
-        for item in self.data['contracts']:
-            draw_line(f"・{item}", y)
-            y -= 6 * mm
+        
+        # タイトル位置
+        self.c.drawString(20 * mm, self.height - 30 * mm, "■ 記録・解析")
+        
+        # --- 3列レイアウト設定 ---
+        # ページ余白 (左右20mmずつと仮定)
+        margin_x = 20 * mm
+        page_width_available = self.width - (margin_x * 2)
+        
+        # 3分割 (カラム間隔 5mm)
+        col_count = 3
+        gutter = 5 * mm
+        col_width = (page_width_available - (gutter * (col_count - 1))) / col_count
+        
+        # 各カラムの開始X座標
+        col_x_starts = [
+            margin_x,
+            margin_x + col_width + gutter,
+            margin_x + (col_width + gutter) * 2
+        ]
+        
+        # 本文開始Y座標
+        start_y = self.height - 50 * mm
+        
+        # 表示するデータのリスト定義 [(タイトル, データリスト), ...]
+        columns_data = [
+            ("◎ 守護存在", self.data['guardians']),
+            ("◎ 癒す優先順位", self.data['priorities']),
+            ("◎ 契約・コード", self.data['contracts'])
+        ]
+        
+        # --- 描画ループ ---
+        for i, (title, items) in enumerate(columns_data):
+            current_x = col_x_starts[i]
+            current_y = start_y
+            
+            # 見出し描画
+            self.c.setFont(FONT_NAME, 12)
+            self.c.setFillColor(colors.black)
+            self.c.drawString(current_x, current_y, title)
+            current_y -= 8 * mm  # 見出し下のマージン
+            
+            # リスト描画
+            self.c.setFont(FONT_NAME, 10)
+            
+            for item in items:
+                # 中黒を追加
+                full_text = f"・{item}"
+                
+                # 自動折り返し処理 (列幅に合わせてテキストを分割)
+                # simpleSplit(text, fontName, fontSize, maxWidth)
+                wrapped_lines = simpleSplit(full_text, FONT_NAME, 10, col_width)
+                
+                for line in wrapped_lines:
+                    self.c.drawString(current_x, current_y, line)
+                    current_y -= 5 * mm  # 行間
+                
+                # 項目間の余白を少し入れる（オプション）
+                current_y -= 1 * mm 
+
         self.c.showPage()
 
     def save(self):
@@ -445,20 +481,37 @@ def main():
 父の父の母 = 父の父の母
 父の父の父 = 父の父の父
 
-◎守護
+◎守護存在
+・父
+・母の父
+・母の母の父
+・父の母の父
 ・父の父の父
-・父の父の父の父
-・父の父の母の母
+・母の母の母の母
+・母の母の父の父
+・母の父の父の母
+・父の母の母の母
+・父の父の母の父
+・父の父の父の母
 
 ◎優先順位
-・母の母の母の母
+・母の父の母の母
+・母の父の父
+・母の母の父の父
+・父の父の父の父
+・母の父の父の母
+・父の父の母の父
+・母の父
+・父
+・母の母の父
+・父の父の母の父
 ・父の母の父
-・父の父の母の母
 
 ◎契約・コード
-・自己犠牲
-・役割
-・感情未消化"""
+・犠牲契約「私が耐えれば丸く収まる・我慢が美徳」感覚がある
+・序列・上下契約「立場を守らないといけない」
+・役割固定契約「昔からこのキャラ」から出られない
+・未完了感情コード「理由のない感情が突然出る」"""
         input_text = st.text_area("入力欄", value=default_input, height=500)
 
     with col2:
