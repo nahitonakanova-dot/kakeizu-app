@@ -9,7 +9,6 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.units import mm
-# 長い文章を折り返すためのユーティリティを追加
 from reportlab.lib.utils import simpleSplit
 
 # ==========================================
@@ -280,7 +279,7 @@ class GenealogyPDF:
             self.c.translate(rx, ry)
             
             self.c.setFont(FONT_NAME, FONT_SIZE_BG)
-            # ★背景文字を白（透かし）
+            # ★背景文字：白（透かし）
             self.c.setFillColor(colors.white) 
             
             # 枠の幅 (rw) に収まる分だけ繰り返す計算
@@ -334,66 +333,61 @@ class GenealogyPDF:
         self.c.showPage()
 
     def create_summary_page(self):
-        """記録・解析ページの生成（3列レイアウト）"""
+        """
+        記録・解析ページの生成（変則2段レイアウト）
+        1段目（左：守護、右：優先順位）
+        2段目（左寄せ～全幅：契約・コード）
+        """
         self.c.setFont(FONT_NAME, 14)
         
         # タイトル位置
         self.c.drawString(20 * mm, self.height - 30 * mm, "■ 記録・解析")
         
-        # --- 3列レイアウト設定 ---
-        # ページ余白 (左右20mmずつと仮定)
+        # --- レイアウト定義 ---
         margin_x = 20 * mm
         page_width_available = self.width - (margin_x * 2)
         
-        # 3分割 (カラム間隔 5mm)
-        col_count = 3
-        gutter = 5 * mm
-        col_width = (page_width_available - (gutter * (col_count - 1))) / col_count
+        # 1段目の設定
+        y_row1_start = self.height - 50 * mm
+        col_width_row1 = page_width_available / 2 - 10 * mm # 2列 + 間隔
         
-        # 各カラムの開始X座標
-        col_x_starts = [
-            margin_x,
-            margin_x + col_width + gutter,
-            margin_x + (col_width + gutter) * 2
-        ]
+        # 2段目の設定（契約・コード用）
+        # 1段目にどれくらいスペースを取るか（例：上から90mm分確保）
+        y_row2_start = y_row1_start - 90 * mm 
+        col_width_row2 = page_width_available # 長い文章用に全幅を使う（左寄せ）
         
-        # 本文開始Y座標
-        start_y = self.height - 50 * mm
-        
-        # 表示するデータのリスト定義 [(タイトル, データリスト), ...]
-        columns_data = [
-            ("◎ 守護存在", self.data['guardians']),
-            ("◎ 癒す優先順位", self.data['priorities']),
-            ("◎ 契約・コード", self.data['contracts'])
+        # ブロック定義: (タイトル, データ, x, y, 幅)
+        blocks = [
+            ("◎ 守護存在", self.data['guardians'], margin_x, y_row1_start, col_width_row1),
+            ("◎ 癒す優先順位", self.data['priorities'], margin_x + col_width_row1 + 10*mm, y_row1_start, col_width_row1),
+            ("◎ 契約・コード", self.data['contracts'], margin_x, y_row2_start, col_width_row2)
         ]
         
         # --- 描画ループ ---
-        for i, (title, items) in enumerate(columns_data):
-            current_x = col_x_starts[i]
+        for title, items, x, start_y, width in blocks:
             current_y = start_y
             
-            # 見出し描画
+            # 見出し
             self.c.setFont(FONT_NAME, 12)
             self.c.setFillColor(colors.black)
-            self.c.drawString(current_x, current_y, title)
-            current_y -= 8 * mm  # 見出し下のマージン
+            self.c.drawString(x, current_y, title)
+            current_y -= 8 * mm
             
-            # リスト描画
+            # リスト
             self.c.setFont(FONT_NAME, 10)
             
             for item in items:
-                # 中黒を追加
                 full_text = f"・{item}"
-                
-                # 自動折り返し処理 (列幅に合わせてテキストを分割)
-                # simpleSplit(text, fontName, fontSize, maxWidth)
-                wrapped_lines = simpleSplit(full_text, FONT_NAME, 10, col_width)
+                # 自動折り返し
+                wrapped_lines = simpleSplit(full_text, FONT_NAME, 10, width)
                 
                 for line in wrapped_lines:
-                    self.c.drawString(current_x, current_y, line)
-                    current_y -= 5 * mm  # 行間
+                    # ページ下端チェック（簡易的）
+                    if current_y < 15 * mm:
+                        break # これ以上描画しない
+                    self.c.drawString(x, current_y, line)
+                    current_y -= 5 * mm
                 
-                # 項目間の余白を少し入れる（オプション）
                 current_y -= 1 * mm 
 
         self.c.showPage()
