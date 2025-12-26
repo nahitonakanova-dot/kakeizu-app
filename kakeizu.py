@@ -278,8 +278,8 @@ class GenealogyPDF:
             self.c.translate(rx, ry)
             
             self.c.setFont(FONT_NAME, FONT_SIZE_BG)
-            # ★背景文字は黒
-            self.c.setFillColor(colors.black) 
+            # ★背景文字を白（透かし）に戻す
+            self.c.setFillColor(colors.white) 
             
             # 枠の幅 (rw) に収まる分だけ繰り返す計算
             unit_text = name + "　"
@@ -488,9 +488,8 @@ def main():
                     
                     st.success(f"「{client_name}」様のPDF生成に成功しました！")
                     
-                    # ★変更点：ファイル名に「さん」を追加
+                    # ダウンロードボタン
                     file_name = f"{client_name}さん_{datetime.datetime.now().strftime('%Y%m%d')}.pdf"
-                    
                     st.download_button(
                         label="PDFをダウンロード",
                         data=buffer,
