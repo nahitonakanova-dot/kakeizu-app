@@ -76,7 +76,7 @@ class GenealogyPDF:
         try:
             pdfmetrics.registerFont(TTFont(FONT_NAME, FONT_FILE))
         except:
-            fallback = "ipaexm.ttf" # フォールバック
+            fallback = "ipaexm.ttf"
             if os.path.exists(fallback):
                 pdfmetrics.registerFont(TTFont(FONT_NAME, fallback))
             else:
@@ -269,16 +269,16 @@ class GenealogyPDF:
             if idx >= 4: break
             rx, ry, rw, rh = rects[idx]
             
-            # 背景転写
+            # ■ 修正：背景転写（完全な白）
             self.c.saveState()
             path = self.c.beginPath()
             path.rect(rx, ry, rw, rh)
             self.c.clipPath(path, stroke=0, fill=0)
             
-            # 白文字で埋める
             bg_t = self.c.beginText()
             bg_t.setFont(FONT_NAME, FONT_SIZE_BG)
-            bg_t.setFillColor(colors.white) 
+            bg_t.setFillColor(colors.white) # 文字色：白
+            bg_t.setStrokeColor(colors.white) # 線色：白
             bg_t.setTextRenderMode(0) 
             
             tx = rx
@@ -325,67 +325,53 @@ class GenealogyPDF:
 
     def create_summary_page(self):
         """
-        ■ レイアウト変更版
-        上段：守護（2列） | 優先順位（2列）
-        下段：契約・コード（全幅）
+        上段：守護・優先順位 (2列表示)
+        下段：契約・コード (全幅表示)
         """
         self.c.setFont(FONT_NAME, 14)
         x_base = 20 * mm
         y_top = self.height - 30 * mm
         
-        # タイトル
         self.c.drawString(x_base, y_top, "■ 記録・解析")
         
         # --- レイアウト設定 ---
-        # ページの有効幅
         page_width = self.width - (x_base * 2)
-        # 上段・下段の境界Y座標（適当に半分より少し上くらいで区切る）
-        y_mid = self.height / 2 - 20 * mm 
+        # ■ 修正：上段と下段の間に十分な余白を確保
+        y_mid = self.height / 2 - 50 * mm # 元より30mm下に下げる
         
-        # 上段のエリア
-        # 左半分：守護、右半分：優先順位
         col_width_half = page_width / 2 - 5 * mm
         x_guardians = x_base
         x_priorities = x_base + page_width / 2 + 5 * mm
         
         y_start_upper = y_top - 15 * mm
         
-        # --- 描画関数（指定されたエリア内で2列表示する）---
+        # --- 2列リスト描画関数 ---
         def draw_2col_list(title, items, start_x, start_y, width, max_lines_per_col=12):
-            # タイトル
             self.c.setFont(FONT_NAME, 12)
             self.c.setFillColor(colors.black)
             self.c.drawString(start_x, start_y, title)
             
             current_y = start_y - 8 * mm
             line_height = 6 * mm
-            col_w = width / 2 # エリア内での1列の幅
+            col_w = width / 2 
             
             self.c.setFont(FONT_NAME, 10)
             
             for i, item in enumerate(items):
-                # 列の切り替え
-                # iがmax_lines_per_col以上なら右列へ
-                # さらに超える場合は描画しない（あるいは3列目へ...今回は2列制限）
-                
                 col_idx = i // max_lines_per_col
                 row_idx = i % max_lines_per_col
                 
-                if col_idx >= 2: break # 2列まで
+                if col_idx >= 2: break 
                 
-                # 表示位置
-                tx = start_x + (col_idx * col_w) + 2 * mm # 少しインデント
+                tx = start_x + (col_idx * col_w) + 2 * mm 
                 ty = current_y - (row_idx * line_height)
-                
                 self.c.drawString(tx, ty, f"・{item}")
 
-        # 1. 守護（上段左）
+        # 上段
         draw_2col_list("◎ 守護存在", self.data['guardians'], x_guardians, y_start_upper, col_width_half, 12)
-        
-        # 2. 優先順位（上段右）
         draw_2col_list("◎ 癒す優先順位", self.data['priorities'], x_priorities, y_start_upper, col_width_half, 12)
         
-        # 3. 契約・コード（下段）
+        # 下段
         y_start_lower = y_mid
         self.c.setFont(FONT_NAME, 12)
         self.c.drawString(x_base, y_start_lower, "◎ 契約・コード")
@@ -393,9 +379,8 @@ class GenealogyPDF:
         y_lower_items = y_start_lower - 8 * mm
         self.c.setFont(FONT_NAME, 10)
         
-        # 契約コードは長文の可能性があるため、単純なリスト表示（必要なら折り返し）
         for item in self.data['contracts']:
-            if y_lower_items < 20 * mm: break # ページ下端
+            if y_lower_items < 20 * mm: break
             self.c.drawString(x_base + 2*mm, y_lower_items, f"・{item}")
             y_lower_items -= 6 * mm
 
