@@ -1,46 +1,23 @@
 import streamlit as st
-import os
-import datetime
 import io
+import datetime
+import os
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.units import mm
+from reportlab.lib.utils import simpleSplit
 
 # ==========================================
-# 1. 設定・フォント準備 (ローカルファイル必須)
+# 1. 設定・データ定義
 # ==========================================
-# ※このファイル名と同じフォントファイルを同フォルダに置いてください
-FONT_FILE = "ipaexm.ttf"
-FONT_NAME = "IPAexMincho"
+# ※フォントファイル名は実際のファイルに合わせて変更してください
+FONT_NAME = "IPAMincho"
+FONT_FILE = "ipam.ttf"
 
-def setup_font():
-    """ローカルのフォントファイルを登録する"""
-    if os.path.exists(FONT_FILE):
-        try:
-            # 既に登録済みかチェックしてから登録
-            try:
-                pdfmetrics.getFont(FONT_NAME)
-            except KeyError:
-                pdfmetrics.registerFont(TTFont(FONT_NAME, FONT_FILE))
-            return True
-        except Exception as e:
-            st.error(f"フォントファイル '{FONT_FILE}' の読み込みに失敗しました。ファイルが破損していないか確認してください。エラー: {e}")
-            return False
-    else:
-        st.error(f"エラー: フォントファイル '{FONT_FILE}' が見つかりません。アプリと同じフォルダに配置してください。")
-        return False
-
-# 設定定数
-FONT_SIZE_TREE = 7.5
-FONT_SIZE_QUAD_NAME = 36
-FONT_SIZE_BG = 10 
-
-# ==========================================
-# 2. 定義データ
-# ==========================================
+# 関係性マップ
 RELATION_MAP = {
     'self': {'gen': 0, 'p_father': 'father', 'p_mother': 'mother', 'label': '本人', 'gender': 'm'},
     'father': {'gen': 1, 'p_father': 'ff', 'p_mother': 'fm', 'label': '父', 'gender': 'm'},
@@ -83,29 +60,44 @@ GEN_PAIRS = {
     1: [('father', 'mother')]
 }
 
+FONT_SIZE_TREE = 7.5
+FONT_SIZE_QUAD_NAME = 36
+FONT_SIZE_BG = 10 
+
 # ==========================================
-# 3. PDF生成クラス
+# 2. PDF生成クラス
 # ==========================================
 class GenealogyPDF:
-    def __init__(self, client_data, buffer):
-        self.c = canvas.Canvas(buffer, pagesize=landscape(A4))
+    def __init__(self, client_data, file_object):
+        self.c = canvas.Canvas(file_object, pagesize=landscape(A4))
         self.width, self.height = landscape(A4)
         self.data = client_data
-        # フォント登録は setup_font() で完了している前提
+        
+        try:
+            pdfmetrics.registerFont(TTFont(FONT_NAME, FONT_FILE))
+        except:
+            fallback = "ipaexm.ttf" # フォールバック
+            if os.path.exists(fallback):
+                pdfmetrics.registerFont(TTFont(FONT_NAME, fallback))
+            else:
+                st.error(f"フォントファイル ({FONT_FILE}) が見つかりません。")
 
     def check_attributes(self, label):
-        """属性判定（完全一致ロジック）"""
+        """完全一致による属性判定"""
         clean_label = "".join(label.split())
+        
         is_guardian = False
         for g_item in self.data['guardians']:
             if "".join(g_item.split()) == clean_label:
                 is_guardian = True
                 break
+        
         is_priority = False
         for p_item in self.data['priorities']:
             if "".join(p_item.split()) == clean_label:
                 is_priority = True
                 break
+        
         return is_guardian, is_priority
 
     def draw_vertical_text(self, text, x, y, size, is_bold=False, is_guardian=False):
@@ -129,11 +121,11 @@ class GenealogyPDF:
             t_obj.setTextOrigin(x - (size/2), char_y)
             
             if is_bold:
-                t_obj.setTextRenderMode(2)
+                t_obj.setTextRenderMode(2) # 太字
                 self.c.setLineWidth(0.5)
                 self.c.setStrokeColor(colors.black)
             else:
-                t_obj.setTextRenderMode(0)
+                t_obj.setTextRenderMode(0) # 通常
                 self.c.setFillColor(colors.black)
             
             t_obj.textOut(char)
@@ -152,7 +144,7 @@ class GenealogyPDF:
         self.c.saveState()
         self.c.setFont(FONT_NAME, 10)
         self.c.setFillColor(colors.black)
-        legend_x = 20 * mm
+        legend_x = margin_x_base
         legend_y = self.height - 15 * mm
         self.c.drawString(legend_x, legend_y, "◎ 太字 ＝ 供養の優先順位の高いご先祖様")
         self.c.drawString(legend_x, legend_y - 6*mm, "◎ 左傍線 ＝ 守護してくださるご先祖様")
@@ -166,8 +158,8 @@ class GenealogyPDF:
             1: margin_y_top - layer_height * 3,
             0: margin_y_bottom
         }
-        
         coords = {} 
+        
         w_available = self.width - (2 * margin_x_base)
         num_couples = 8
         slot_width = w_available / num_couples
@@ -225,10 +217,12 @@ class GenealogyPDF:
         self.c.showPage()
 
     def _draw_node(self, key, x, y, box_w, box_h):
-        name = self.data['names'].get(key, RELATION_MAP[key]['label'])
+        name = self.data['names'].get(key)
+        if not name:
+            name = RELATION_MAP[key]['label']
+            
         label = RELATION_MAP[key]['label']
         gender = RELATION_MAP[key].get('gender', 'm')
-        if key == 'self': name = self.data['names'].get('本人', name)
         
         is_guardian, is_priority = self.check_attributes(label)
 
@@ -241,11 +235,11 @@ class GenealogyPDF:
         else:
             self.c.rect(x - box_w/2, y - box_h/2, box_w, box_h, fill=1, stroke=1)
         self.c.restoreState()
-        self.draw_vertical_text(name if name else label, x, y, FONT_SIZE_TREE, is_priority, is_guardian)
+        self.draw_vertical_text(name, x, y, FONT_SIZE_TREE, is_priority, is_guardian)
 
     def create_quad_pages(self):
         targets = []
-        targets.append(('self', self.data['names'].get('本人', '本人')))
+        targets.append(('self', self.data['names'].get('self', '本人')))
         sorted_keys = sorted(RELATION_MAP.keys(), key=lambda x: RELATION_MAP[x]['gen'])
         for key in sorted_keys:
             if key == 'self': continue
@@ -262,7 +256,7 @@ class GenealogyPDF:
         cx, cy = w/2, h/2
         
         self.c.saveState()
-        self.c.setLineWidth(2.0) 
+        self.c.setLineWidth(1.5) 
         self.c.setStrokeColor(colors.black)
         self.c.setDash([]) 
         self.c.line(cx, 0, cx, h)
@@ -279,13 +273,14 @@ class GenealogyPDF:
             self.c.saveState()
             path = self.c.beginPath()
             path.rect(rx, ry, rw, rh)
-            self.c.clipPath(path, stroke=0)
-            self.c.setFillColor(colors.white)
-            self.c.setStrokeColor(colors.white)
+            self.c.clipPath(path, stroke=0, fill=0)
+            
+            # 白文字で埋める
             bg_t = self.c.beginText()
             bg_t.setFont(FONT_NAME, FONT_SIZE_BG)
             bg_t.setFillColor(colors.white) 
             bg_t.setTextRenderMode(0) 
+            
             tx = rx
             ty = ry + rh
             while ty > ry:
@@ -296,6 +291,7 @@ class GenealogyPDF:
             self.c.drawText(bg_t)
             self.c.restoreState()
             
+            # 中央表示
             label = RELATION_MAP[key]['label']
             is_guardian, is_priority = self.check_attributes(label)
 
@@ -328,67 +324,100 @@ class GenealogyPDF:
         self.c.showPage()
 
     def create_summary_page(self):
+        """
+        ■ レイアウト変更版
+        上段：守護（2列） | 優先順位（2列）
+        下段：契約・コード（全幅）
+        """
         self.c.setFont(FONT_NAME, 14)
-        x_base = 30 * mm
-        y = self.height - 40 * mm
-        self.c.drawString(x_base, y, "■ 記録・解析")
-        y -= 15 * mm
+        x_base = 20 * mm
+        y_top = self.height - 30 * mm
         
-        def draw_section_multicolumn(title, data_list, start_y):
-            t_obj = self.c.beginText()
-            t_obj.setFont(FONT_NAME, 12)
-            t_obj.setTextOrigin(x_base, start_y)
-            t_obj.textOut(title)
-            self.c.drawText(t_obj)
+        # タイトル
+        self.c.drawString(x_base, y_top, "■ 記録・解析")
+        
+        # --- レイアウト設定 ---
+        # ページの有効幅
+        page_width = self.width - (x_base * 2)
+        # 上段・下段の境界Y座標（適当に半分より少し上くらいで区切る）
+        y_mid = self.height / 2 - 20 * mm 
+        
+        # 上段のエリア
+        # 左半分：守護、右半分：優先順位
+        col_width_half = page_width / 2 - 5 * mm
+        x_guardians = x_base
+        x_priorities = x_base + page_width / 2 + 5 * mm
+        
+        y_start_upper = y_top - 15 * mm
+        
+        # --- 描画関数（指定されたエリア内で2列表示する）---
+        def draw_2col_list(title, items, start_x, start_y, width, max_lines_per_col=12):
+            # タイトル
+            self.c.setFont(FONT_NAME, 12)
+            self.c.setFillColor(colors.black)
+            self.c.drawString(start_x, start_y, title)
             
-            item_y_start = start_y - 8 * mm
+            current_y = start_y - 8 * mm
             line_height = 6 * mm
-            col_width = 60 * mm
-            limit_per_col = 12
+            col_w = width / 2 # エリア内での1列の幅
             
-            current_x = x_base + 10 * mm
-            current_y = item_y_start
+            self.c.setFont(FONT_NAME, 10)
             
-            if not data_list:
-                return start_y - 15 * mm
-
-            for i, item in enumerate(data_list):
-                if i > 0 and i % limit_per_col == 0:
-                    current_x += col_width
-                    current_y = item_y_start
+            for i, item in enumerate(items):
+                # 列の切り替え
+                # iがmax_lines_per_col以上なら右列へ
+                # さらに超える場合は描画しない（あるいは3列目へ...今回は2列制限）
                 
-                t_obj = self.c.beginText()
-                t_obj.setFont(FONT_NAME, 10)
-                t_obj.setTextOrigin(current_x, current_y)
-                t_obj.textOut(f"・{item}")
-                self.c.drawText(t_obj)
-                current_y -= line_height
-            
-            rows_used = min(len(data_list), limit_per_col)
-            section_height = (rows_used * line_height) + 8 * mm
-            return start_y - section_height - 10 * mm
+                col_idx = i // max_lines_per_col
+                row_idx = i % max_lines_per_col
+                
+                if col_idx >= 2: break # 2列まで
+                
+                # 表示位置
+                tx = start_x + (col_idx * col_w) + 2 * mm # 少しインデント
+                ty = current_y - (row_idx * line_height)
+                
+                self.c.drawString(tx, ty, f"・{item}")
 
-        y = draw_section_multicolumn("◎ 守護", self.data['guardians'], y)
-        y = draw_section_multicolumn("◎ 癒す優先順位", self.data['priorities'], y)
-        y = draw_section_multicolumn("◎ 契約・コード", self.data['contracts'], y)
+        # 1. 守護（上段左）
+        draw_2col_list("◎ 守護存在", self.data['guardians'], x_guardians, y_start_upper, col_width_half, 12)
+        
+        # 2. 優先順位（上段右）
+        draw_2col_list("◎ 癒す優先順位", self.data['priorities'], x_priorities, y_start_upper, col_width_half, 12)
+        
+        # 3. 契約・コード（下段）
+        y_start_lower = y_mid
+        self.c.setFont(FONT_NAME, 12)
+        self.c.drawString(x_base, y_start_lower, "◎ 契約・コード")
+        
+        y_lower_items = y_start_lower - 8 * mm
+        self.c.setFont(FONT_NAME, 10)
+        
+        # 契約コードは長文の可能性があるため、単純なリスト表示（必要なら折り返し）
+        for item in self.data['contracts']:
+            if y_lower_items < 20 * mm: break # ページ下端
+            self.c.drawString(x_base + 2*mm, y_lower_items, f"・{item}")
+            y_lower_items -= 6 * mm
+
         self.c.showPage()
 
     def save(self):
         self.c.save()
 
 # ==========================================
-# 5. Streamlit UI
+# 3. テキスト解析処理
 # ==========================================
-def parse_client_data(text_content):
+def parse_text_data(text):
     data = {'names': {}, 'guardians': [], 'priorities': [], 'contracts': []}
     current_section = 'names'
     label_map = {v['label']: k for k, v in RELATION_MAP.items()}
     label_map['本人'] = 'self' 
     
-    lines = text_content.split('\n')
+    lines = text.split('\n')
     for line in lines:
-        line = line.strip()
+        line = line.replace('　', ' ').replace('*', '').strip()
         if not line: continue
+        
         if line.startswith('◎守護'):
             current_section = 'guardians'
             continue
@@ -400,64 +429,132 @@ def parse_client_data(text_content):
             continue
         
         if current_section == 'names':
+            line = line.replace('＝', '=')
             if '=' in line:
-                parts = line.split('=', 1)
-                key_str = parts[0].strip()
-                val = parts[1].strip()
-                sys_key = label_map.get(key_str)
-                if key_str in RELATION_MAP: data['names'][key_str] = val
-                elif sys_key: data['names'][sys_key] = val
-                else: data['names'][key_str] = val
+                key_str, val = line.split('=', 1)
+                key_str = key_str.strip()
+                val = val.strip()
+                
+                if key_str == '本人':
+                    data['names']['self'] = val
+                elif key_str in label_map:
+                    sys_key = label_map[key_str]
+                    data['names'][sys_key] = val
+                elif key_str in RELATION_MAP:
+                    data['names'][key_str] = val
+                else:
+                    data['names'][key_str] = val
+
         elif current_section == 'guardians':
             if line.startswith('・'): line = line[1:]
-            data['guardians'].append(line)
+            data['guardians'].append(line.strip())
         elif current_section == 'priorities':
             if line.startswith('・'): line = line[1:]
-            data['priorities'].append(line)
+            data['priorities'].append(line.strip())
         elif current_section == 'contracts':
             if line.startswith('・'): line = line[1:]
-            data['contracts'].append(line)
+            data['contracts'].append(line.strip())
     return data
 
+# ==========================================
+# 4. Streamlitアプリのメイン処理
+# ==========================================
 def main():
-    st.title("家系図PDFジェネレーター (Final)")
+    st.set_page_config(page_title="家系図PDFジェネレーター", layout="wide")
+    st.title("家系図PDFジェネレーター")
     
-    # フォント準備 (ローカルのみ)
-    if not setup_font():
-        return
+    col1, col2 = st.columns([1, 1])
 
-    # 入力エリア
-    user_input = st.text_area("クライアント情報入力", height=400)
-    
-    if st.button("PDFを生成"):
-        if not user_input.strip():
-            st.warning("情報を入力してください")
-            return
-            
-        try:
-            client_data = parse_client_data(user_input)
-            client_name = client_data['names'].get('self', 'Client')
-            date_str = datetime.datetime.now().strftime("%Y%m%d")
-            filename = f"{client_name}_{date_str}.pdf"
-            
-            buffer = io.BytesIO()
-            gen = GenealogyPDF(client_data, buffer)
-            gen.create_tree_page()
-            gen.create_quad_pages()
-            gen.create_summary_page()
-            gen.save()
-            buffer.seek(0)
-            
-            st.success(f"PDF生成完了: {filename}")
-            st.download_button(
-                label="PDFをダウンロード",
-                data=buffer,
-                file_name=filename,
-                mime="application/pdf"
-            )
-            
-        except Exception as e:
-            st.error(f"エラーが発生しました: {e}")
+    with col1:
+        st.subheader("1. データ入力")
+        default_input = """本人 = 山田光
+母 = 母
+父 = 父
+母の母 = 母の母
+母の父 = 母の父
+父の母 = 父の母
+父の父 = 父の父
+母の母の母 = 母の母の母
+母の母の父 = 母の母の父
+母の父の母 = 母の父の母
+母の父の父 = 母の父の父
+父の母の母 = 父の母の母
+父の母の父 = 父の母の父
+父の父の母 = 父の父の母
+父の父の父 = 父の父の父
+
+◎守護存在
+・父
+・母の父
+・母の母の父
+・父の母の父
+・父の父の父
+・母の母の母の母
+・母の母の父の父
+・母の父の父の母
+・父の母の母の母
+・父の父の母の父
+・父の父の父の母
+
+◎優先順位
+・母の父の母の母
+・母の父の父
+・母の母の父の父
+・父の父の父の父
+・母の父の父の母
+・父の父の母の父
+・母の父
+・父
+・母の母の父
+・父の父の母の父
+・父の母の父
+
+◎契約・コード
+・犠牲契約「私が耐えれば丸く収まる・我慢が美徳」感覚がある
+・序列・上下契約「立場を守らないといけない」
+・役割固定契約「昔からこのキャラ」から出られない
+・未完了感情コード「理由のない感情が突然出る」"""
+        input_text = st.text_area("入力欄", value=default_input, height=500)
+
+    with col2:
+        st.subheader("2. 生成・ダウンロード")
+        st.write("左側のデータを編集して「PDF生成」を押してください。")
+        
+        if st.button("PDFを生成する", type="primary"):
+            if not input_text:
+                st.error("入力データが空です。")
+            else:
+                try:
+                    # 解析
+                    client_data = parse_text_data(input_text)
+                    
+                    client_name = client_data['names'].get('self', 
+                                                  client_data['names'].get('本人', 'Client'))
+                    
+                    # メモリ上にPDF作成
+                    buffer = io.BytesIO()
+                    gen = GenealogyPDF(client_data, buffer)
+                    gen.create_tree_page()
+                    gen.create_quad_pages()
+                    gen.create_summary_page()
+                    gen.save()
+                    
+                    buffer.seek(0)
+                    
+                    st.success(f"「{client_name}」様のPDF生成に成功しました！")
+                    
+                    # ダウンロードボタン
+                    file_name = f"{client_name}さん_{datetime.datetime.now().strftime('%Y%m%d')}.pdf"
+                    st.download_button(
+                        label="PDFをダウンロード",
+                        data=buffer,
+                        file_name=file_name,
+                        mime="application/pdf"
+                    )
+                except Exception as e:
+                    st.error(f"エラーが発生しました: {e}")
+                    if "IPAMincho" in str(e) or "Can't find font" in str(e):
+                        st.warning("⚠️ ヒント: フォントファイル(ipam.ttf)が同じフォルダに存在するか確認してください。")
 
 if __name__ == "__main__":
     main()
