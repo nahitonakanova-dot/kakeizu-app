@@ -10,8 +10,9 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.units import mm
 
 # ==========================================
-# 1. 設定・フォント準備 (ローカルファイル前提)
+# 1. 設定・フォント準備 (ローカルファイル必須)
 # ==========================================
+# ※このファイル名と同じフォントファイルを同フォルダに置いてください
 FONT_FILE = "ipaexm.ttf"
 FONT_NAME = "IPAexMincho"
 
@@ -19,16 +20,17 @@ def setup_font():
     """ローカルのフォントファイルを登録する"""
     if os.path.exists(FONT_FILE):
         try:
-            pdfmetrics.registerFont(TTFont(FONT_NAME, FONT_FILE))
+            # 既に登録済みかチェックしてから登録
+            try:
+                pdfmetrics.getFont(FONT_NAME)
+            except KeyError:
+                pdfmetrics.registerFont(TTFont(FONT_NAME, FONT_FILE))
             return True
         except Exception as e:
-            # 既に登録済みなどのエラーは無視しつつ、致命的ならFalse
-            if "is already registered" in str(e):
-                return True
-            st.error(f"フォントの登録エラー: {e}")
+            st.error(f"フォントファイル '{FONT_FILE}' の読み込みに失敗しました。ファイルが破損していないか確認してください。エラー: {e}")
             return False
     else:
-        st.error(f"フォントファイル '{FONT_FILE}' が見つかりません。同じフォルダに配置してください。")
+        st.error(f"エラー: フォントファイル '{FONT_FILE}' が見つかりません。アプリと同じフォルダに配置してください。")
         return False
 
 # 設定定数
@@ -89,7 +91,7 @@ class GenealogyPDF:
         self.c = canvas.Canvas(buffer, pagesize=landscape(A4))
         self.width, self.height = landscape(A4)
         self.data = client_data
-        # フォント登録は setup_font() で行う
+        # フォント登録は setup_font() で完了している前提
 
     def check_attributes(self, label):
         """属性判定（完全一致ロジック）"""
@@ -143,7 +145,7 @@ class GenealogyPDF:
         margin_y_top = self.height - 40 * mm 
         margin_y_bottom = 25 * mm
         box_w = 8 * mm
-        box_h = 18 * mm 
+        box_h = 24 * mm 
         box_h_half = box_h / 2
         
         # 凡例
@@ -418,9 +420,9 @@ def parse_client_data(text_content):
     return data
 
 def main():
-    st.title("家系図PDFジェネレーター (Final v8.3)")
+    st.title("家系図PDFジェネレーター (Final)")
     
-    # フォント準備
+    # フォント準備 (ローカルのみ)
     if not setup_font():
         return
 
