@@ -13,7 +13,6 @@ from reportlab.lib.units import mm
 # ==========================================
 # 1. 設定・フォント準備
 # ==========================================
-# Streamlitではローカルにフォントをダウンロードして使うのが確実です
 FONT_URL = "https://github.com/ixkaito/IPAexfont/raw/master/ipaexm.ttf"
 FONT_FILE = "ipaexm.ttf"
 FONT_NAME = "IPAexMincho"
@@ -21,10 +20,13 @@ FONT_NAME = "IPAexMincho"
 def setup_font():
     """フォントファイルがなければダウンロードする"""
     if not os.path.exists(FONT_FILE):
-        with st.spinner('フォントをダウンロード中...'):
-            response = requests.get(FONT_URL)
-            with open(FONT_FILE, "wb") as f:
-                f.write(response.content)
+        try:
+            with st.spinner('フォントをダウンロード中...'):
+                response = requests.get(FONT_URL)
+                with open(FONT_FILE, "wb") as f:
+                    f.write(response.content)
+        except Exception as e:
+            st.error(f"フォントのダウンロードに失敗しました: {e}")
 
 # 設定定数
 FONT_SIZE_TREE = 7.5
@@ -32,7 +34,59 @@ FONT_SIZE_QUAD_NAME = 36
 FONT_SIZE_BG = 10 
 
 # ==========================================
-# 2. 定義データ（ロジック部分は変更なし）
+# 2. デフォルト入力データ (ここがエラーの原因でした)
+# ==========================================
+client_txt_content = """
+本人 = 山田光
+母 = 母
+父 = 父
+母の母 = 母の母
+母の父 = 母の父
+父の母 = 父の母
+父の父 = 父の父
+母の母の母 = 母の母の母
+母の母の父 = 母の母の父
+母の父の母 = 母の父の母
+母の父の父 = 母の父の父
+父の母の母 = 父の母の母
+父の母の父 = 父の母の父
+父の父の母 = 父の父の母
+父の父の父 = 父の父の父
+母の母の母の母 = 母の母の母の母
+母の母の母の父 = 母の母の母の父
+母の母の父の母 = 母の母の父の母
+母の母の父の父 = 母の母の父の父
+母の父の母の母 = 母の父の母の母
+母の父の母の父 = 母の父の母の父
+母の父の父の母 = 母の父の父の母
+母の父の父の父 = 母の父の父の父
+父の母の母の母 = 父の母の母の母
+父の母の母の父 = 父の母の母の父
+父の母の父の母 = 父の母の父の母
+父の母の父の父 = 父の母の父の父
+父の父の母の母 = 父の父の母の母
+父の父の母の父 = 父の父の母の父
+父の父の父の母 = 父の父の父の母
+父の父の父の父 = 父の父の父の父
+
+◎守護
+・父の父の父
+・父の父の父の父
+・父の父の母の母
+
+◎優先順位
+・母の母の母の母
+・父の母の父
+・父の父の母の母
+
+◎契約・コード
+・自己犠牲
+・役割
+・感情未消化
+"""
+
+# ==========================================
+# 3. 定義データ（ロジック部分は変更なし）
 # ==========================================
 RELATION_MAP = {
     'self': {'gen': 0, 'p_father': 'father', 'p_mother': 'mother', 'label': '本人', 'gender': 'm'},
@@ -77,18 +131,20 @@ GEN_PAIRS = {
 }
 
 # ==========================================
-# 3. PDF生成クラス (Streamlit向けにBytesIO対応)
+# 4. PDF生成クラス (Streamlit向けにBytesIO対応)
 # ==========================================
 class GenealogyPDF:
     def __init__(self, client_data, buffer):
-        # ファイル名の代わりにバッファを受け取る
         self.c = canvas.Canvas(buffer, pagesize=landscape(A4))
         self.width, self.height = landscape(A4)
         self.data = client_data
         
         # フォント登録
         setup_font()
-        pdfmetrics.registerFont(TTFont(FONT_NAME, FONT_FILE))
+        try:
+            pdfmetrics.registerFont(TTFont(FONT_NAME, FONT_FILE))
+        except Exception:
+            pass # すでに登録済みの場合はスキップ
 
     def check_attributes(self, label):
         """属性判定（完全一致ロジック）"""
@@ -142,7 +198,7 @@ class GenealogyPDF:
         margin_y_top = self.height - 40 * mm 
         margin_y_bottom = 25 * mm
         box_w = 8 * mm
-        box_h = 18 * mm # 短縮版
+        box_h = 24 * mm # 短縮版
         box_h_half = box_h / 2
         
         # 凡例
@@ -374,7 +430,7 @@ class GenealogyPDF:
         self.c.save()
 
 # ==========================================
-# 4. Streamlit UI
+# 5. Streamlit UI
 # ==========================================
 def parse_client_data(text_content):
     """テキストボックスの内容をパースする関数"""
@@ -420,13 +476,10 @@ def parse_client_data(text_content):
 
 # Streamlitメイン処理
 def main():
-    st.title("家系図PDFジェネレーター (Final v8)")
+    st.title("家系図PDFジェネレーター (Final v8.1)")
     
-    # デフォルトのテキスト
-    default_text = client_txt_content
-    
-    # 入力エリア
-    user_input = st.text_area("クライアント情報入力", value=default_text, height=400)
+    # 入力エリア（デフォルト値をセット）
+    user_input = st.text_area("クライアント情報入力", value=client_txt_content, height=400)
     
     if st.button("PDFを生成"):
         try:
