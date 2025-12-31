@@ -11,22 +11,37 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.units import mm
 
 # ==========================================
-# 1. 設定・フォント準備
+# 1. 設定・フォント準備 (修正箇所)
 # ==========================================
 FONT_URL = "https://github.com/ixkaito/IPAexfont/raw/master/ipaexm.ttf"
 FONT_FILE = "ipaexm.ttf"
 FONT_NAME = "IPAexMincho"
 
+# Streamlitのキャッシュ機能を使って、再起動してもフォント設定を保持・確実化します
+@st.cache_resource
 def setup_font():
-    """フォントファイルがなければダウンロードする"""
+    """フォントファイルをダウンロードして登録する"""
+    # 1. ファイルがなければダウンロード
     if not os.path.exists(FONT_FILE):
         try:
-            with st.spinner('フォントをダウンロード中...'):
-                response = requests.get(FONT_URL)
-                with open(FONT_FILE, "wb") as f:
-                    f.write(response.content)
+            response = requests.get(FONT_URL)
+            response.raise_for_status() # 通信エラーがあればここで例外発生
+            with open(FONT_FILE, "wb") as f:
+                f.write(response.content)
         except Exception as e:
             st.error(f"フォントのダウンロードに失敗しました: {e}")
+            return False
+
+    # 2. フォントをReportLabに登録
+    try:
+        pdfmetrics.registerFont(TTFont(FONT_NAME, FONT_FILE))
+        return True
+    except Exception as e:
+        # すでに登録済みの場合のエラーは無視、それ以外は表示
+        if "is already registered" not in str(e):
+            st.error(f"フォントの登録に失敗しました: {e}")
+            return False
+        return True
 
 # 設定定数
 FONT_SIZE_TREE = 7.5
@@ -34,7 +49,7 @@ FONT_SIZE_QUAD_NAME = 36
 FONT_SIZE_BG = 10 
 
 # ==========================================
-# 2. デフォルト入力データ (ここがエラーの原因でした)
+# 2. デフォルト入力データ
 # ==========================================
 client_txt_content = """
 本人 = 山田光
@@ -86,7 +101,7 @@ client_txt_content = """
 """
 
 # ==========================================
-# 3. 定義データ（ロジック部分は変更なし）
+# 3. 定義データ
 # ==========================================
 RELATION_MAP = {
     'self': {'gen': 0, 'p_father': 'father', 'p_mother': 'mother', 'label': '本人', 'gender': 'm'},
@@ -131,20 +146,14 @@ GEN_PAIRS = {
 }
 
 # ==========================================
-# 4. PDF生成クラス (Streamlit向けにBytesIO対応)
+# 4. PDF生成クラス (Streamlit向け)
 # ==========================================
 class GenealogyPDF:
     def __init__(self, client_data, buffer):
         self.c = canvas.Canvas(buffer, pagesize=landscape(A4))
         self.width, self.height = landscape(A4)
         self.data = client_data
-        
-        # フォント登録
-        setup_font()
-        try:
-            pdfmetrics.registerFont(TTFont(FONT_NAME, FONT_FILE))
-        except Exception:
-            pass # すでに登録済みの場合はスキップ
+        # コンストラクタでのフォント登録処理は削除し、setup_font()に一任
 
     def check_attributes(self, label):
         """属性判定（完全一致ロジック）"""
@@ -476,9 +485,13 @@ def parse_client_data(text_content):
 
 # Streamlitメイン処理
 def main():
-    st.title("家系図PDFジェネレーター (Final v8.1)")
+    st.title("家系図PDFジェネレーター (Final v8.2)")
     
-    # 入力エリア（デフォルト値をセット）
+    # フォント確認・ダウンロード
+    if not setup_font():
+        return
+
+    # 入力エリア
     user_input = st.text_area("クライアント情報入力", value=client_txt_content, height=400)
     
     if st.button("PDFを生成"):
